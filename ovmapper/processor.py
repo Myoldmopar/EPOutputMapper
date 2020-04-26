@@ -1,18 +1,3 @@
-# steps:
-# - generate a release build of EnergyPlus from the *** branch
-#   - this branch has two changes: it writes out all output variable requests to output_vars.csv, and
-#   - it has a -c argument in the energyplus cmake test commands, so that energyplus will write an epJSON file
-# - run all integration files from the build dir:
-#    cd build/dir
-#    ctest -R integration* -j 8
-# - then run this script, which will
-#   - find all output_var.csv files
-#   - mine the contents of each, along with the contents of the matching IDF file
-#   - possibly convert the IDF to JSON for easier parsing -- no external python lib dependencies like py_idd_idf
-#   - match up output var requests with object types in the IDF
-#   - collapse that down into a unique list
-#   - report it as a JSON blob
-
 from json import dumps
 from pathlib import Path
 from time import time
@@ -30,24 +15,31 @@ class OutputVariableMapper:
     input objects prior to a simulation.
     """
 
-    def __init__(self, path_to_build_dir: Path, output_dir: Path):
+    def __init__(self, path_to_build_dir: Path):
         """
-        This constructor takes the path to a build directory and creates output variable map files.
+        This constructor takes the path to a build directory and processes output variable map files.
         :param path_to_build_dir: Path to a build directory where the build was created using the `GenerateReportSchema`
                                   branch and `ctest -R "integration*"` has been executed
-        :param output_dir: The output directory to dump the map files
+
         """
         self.build_dir = path_to_build_dir
         self.all_files = self._get_all_applicable_files()
         self.final_mapping = self._down_select_object_types()
+        self.inverted_map = self._invert_mapping()
+
+    def dump_results(self, output_dir: Path) -> None:
+        """
+        Dumps mapping results files to the output directory specified
+        :param output_dir: The output directory to dump the map files
+        :return: Nothing
+        """
         ov_to_object_path = output_dir / 'output_var_to_object_map.json'
-        object_to_ov_path = output_dir / 'output_var_to_object_map.json'
+        object_to_ov_path = output_dir / 'object_to_output_var_map.json'
         print("Creating OV->OBJECT map at %s" % ov_to_object_path)
         with open(str(ov_to_object_path), 'w') as f:
             json_data = {'OutputVariables': [x.to_object() for x in self.final_mapping]}
             json_string = dumps(json_data, indent=2)
             f.write(json_string)
-        self.inverted_map = self._invert_mapping()
         print("Creating OBJECT->OV map at %s" % object_to_ov_path)
         with open(str(object_to_ov_path), 'w') as f:
             json_data = {'OutputVariables': self.inverted_map}
@@ -113,9 +105,3 @@ class OutputVariableMapper:
                     if ov not in object_to_ov_map[obj_type]:
                         object_to_ov_map[obj_type].append(ov.output_variable_name)
         return object_to_ov_map
-
-
-sch = OutputVariableMapper(
-    Path('/eplus/repos/4eplus/builds/r'),
-    Path('/tmp')
-)
